@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Quiz - Categories & High Scores</title>
+    <!-- Tailwind CSS for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for a clean look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the app */
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: manipulation; /* Improves touch responsiveness */
+        }
+        /* Custom transition for smooth effects */
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+        /* Styling for the progress bar */
+        #progress-bar {
+            transition: width 0.5s ease-in-out;
+        }
+        /* Styling for correct/incorrect answer feedback */
+        .correct {
+            background-color: #22c55e !important; /* green-500 */
+            color: white !important;
+            transform: scale(1.05);
+            border-color: #16a34a !important;
+        }
+        .incorrect {
+            background-color: #ef4444 !important; /* red-500 */
+            color: white !important;
+            border-color: #dc2626 !important;
+        }
+        /* Simple loading spinner */
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #4f46e5; /* Indigo */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex items-center justify-center min-h-screen p-4">
+
+    <div id="quiz-container" class="w-full max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8">
+        
+        <!-- Loading Screen -->
+        <div id="loading-screen" class="text-center">
+             <div class="loader"></div>
+             <p class="text-lg text-gray-600 dark:text-gray-300">Connecting...</p>
+        </div>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="hidden text-center">
+            <h1 class="text-3xl md:text-4xl font-bold text-indigo-600 dark:text-indigo-400 mb-2">Advanced Quiz</h1>
+            <p class="text-lg text-gray-600 dark:text-gray-300 mb-6">Select a category to begin!</p>
+            <div id="high-scores" class="mb-6 text-left p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                <h3 class="text-xl font-bold mb-2 text-center">Your High Scores</h3>
+                <div id="high-scores-list" class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
+                    <!-- High scores will be populated by JS -->
+                </div>
+            </div>
+            <div id="category-selection" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Category buttons will be inserted here by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Quiz Screen -->
+        <div id="quiz-screen" class="hidden">
+            <div class="flex justify-between items-center mb-4">
+                <div class="text-lg font-semibold">Score: <span id="score" class="text-indigo-500 dark:text-indigo-400">0</span></div>
+                <div id="timer" class="w-24 h-10 flex items-center justify-center bg-gray-200 dark:bg-gray-700 rounded-lg text-lg font-bold">15s</div>
+            </div>
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-6">
+                <div id="progress-bar" class="bg-indigo-600 h-2.5 rounded-full" style="width: 0%"></div>
+            </div>
+            <h2 id="question-text" class="text-2xl md:text-3xl font-semibold mb-6 text-center"></h2>
+            <div id="answer-buttons" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </div>
+
+        <!-- Results Screen -->
+        <div id="results-screen" class="hidden text-center">
+            <h1 id="results-title" class="text-3xl md:text-4xl font-bold text-indigo-600 dark:text-indigo-400 mb-4">Quiz Complete!</h1>
+            <p class="text-xl text-gray-600 dark:text-gray-300 mb-2">Your final score is:</p>
+            <p id="final-score" class="text-5xl font-extrabold text-gray-800 dark:text-white mb-6"></p>
+            <p id="new-high-score-text" class="text-2xl font-bold text-green-500 mb-6 hidden"></p>
+            <p id="feedback-text" class="text-lg mb-8"></p>
+            <button id="restart-btn" class="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg text-xl transition-all transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800">
+                Choose Another Category
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Firebase Imports ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- DOM Element References ---
+        const loadingScreen = document.getElementById('loading-screen');
+        const startScreen = document.getElementById('start-screen');
+        const quizScreen = document.getElementById('quiz-screen');
+        const resultsScreen = document.getElementById('results-screen');
+        const categorySelection = document.getElementById('category-selection');
+        const highScoresList = document.getElementById('high-scores-list');
+        const restartBtn = document.getElementById('restart-btn');
+        const questionText = document.getElementById('question-text');
+        const answerButtons = document.getElementById('answer-buttons');
+        const scoreEl = document.getElementById('score');
+        const finalScoreEl = document.getElementById('final-score');
+        const feedbackTextEl = document.getElementById('feedback-text');
+        const newHighScoreText = document.getElementById('new-high-score-text');
+        const timerEl = document.getElementById('timer');
+        const progressBar = document.getElementById('progress-bar');
+        
+        // --- All Quiz Questions (Categorized) ---
+        const allQuestions = {
+            "Tech": [
+                { question: "What does HTML stand for?", answers: [{ text: "HyperText Markup Language", correct: true }, { text: "Hyperlinks and Text Markup Language", correct: false }, { text: "Home Tool Markup Language", correct: false }] },
+                { question: "What is the result of `typeof null` in JavaScript?", answers: [{ text: "'object'", correct: true }, { text: "'null'", correct: false }, { text: "'undefined'", correct: false }] },
+                { question: "Which company developed the Python programming language?", answers: [{ text: "Google", correct: false }, { text: "Guido van Rossum", correct: true }, { text: "Microsoft", correct: false }] },
+            ],
+            "Science": [
+                { question: "What is the chemical symbol for water?", answers: [{ text: "H2O", correct: true }, { text: "O2", correct: false }, { text: "CO2", correct: false }] },
+                { question: "Which planet is known as the Red Planet?", answers: [{ text: "Mars", correct: true }, { text: "Jupiter", correct: false }, { text: "Venus", correct: false }] },
+                { question: "What is the powerhouse of the cell?", answers: [{ text: "Nucleus", correct: false }, { text: "Ribosome", correct: false }, { text: "Mitochondrion", correct: true }] },
+            ],
+            "General": [
+                { question: "What is the capital of Japan?", answers: [{ text: "Tokyo", correct: true }, { text: "Kyoto", correct: false }, { text: "Osaka", correct: false }] },
+                { question: "What is the largest mammal in the world?", answers: [{ text: "Elephant", correct: false }, { text: "Blue Whale", correct: true }, { text: "Giraffe", correct: false }] },
+                { question: "How many continents are there?", answers: [{ text: "5", correct: false }, { text: "6", correct: false }, { text: "7", correct: true }] },
+            ]
+        };
+
+        // --- Firebase and State Variables ---
+        let db, auth;
+        let userId;
+        let isFirebaseEnabled = false; // Flag to check if Firebase is running
+        let currentQuestionIndex, score, timer, timerInterval;
+        let quizQuestions = [];
+        let selectedCategory = '';
+        let highScores = {};
+        const TIME_LIMIT = 15;
+
+        // --- Firebase Initialization ---
+        async function initializeFirebase() {
+            // This block checks for the Firebase config provided by the environment.
+            // If you run this file on a local server, `__firebase_config` will be
+            // undefined, and the app will enter "offline mode" where high scores
+            // are disabled, but the quiz remains fully playable.
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                try {
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+                    isFirebaseEnabled = true;
+
+                    onAuthStateChanged(auth, async (user) => {
+                        if (user) {
+                            // If user is signed in, store UID and initialize the app
+                            userId = user.uid;
+                            console.log("User is signed in with UID:", userId);
+                            await loadHighScores();
+                            initializeAppUI();
+                        } else {
+                            // If no user, attempt to sign in. The listener will execute again upon success.
+                            console.log("No user found. Attempting to sign in.");
+                            try {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                    await signInWithCustomToken(auth, __initial_auth_token);
+                                } else {
+                                    await signInAnonymously(auth);
+                                }
+                            } catch (authError) {
+                                console.error("Authentication failed:", authError);
+                                isFirebaseEnabled = false;
+                                initializeAppUI(); // Fallback to offline if auth fails
+                            }
+                        }
+                    });
+                } catch (error) {
+                    console.error("Firebase initialization failed:", error);
+                    isFirebaseEnabled = false;
+                    initializeAppUI(); // Fallback to offline mode
+                }
+            } else {
+                // Fallback for local development
+                console.warn("Firebase config not found. Running in offline mode. High scores will be disabled.");
+                isFirebaseEnabled = false;
+                initializeAppUI();
+            }
+        }
+        
+        // --- UI Initialization ---
+        function initializeAppUI() {
+            loadingScreen.classList.add('hidden');
+            startScreen.classList.remove('hidden');
+            setupCategoryButtons();
+            if (isFirebaseEnabled) {
+                displayHighScores();
+            } else {
+                // Hide the high scores section if Firebase is not enabled
+                document.getElementById('high-scores').classList.add('hidden');
+            }
+        }
+
+        // --- High Score Management (Firestore) ---
+        async function loadHighScores() {
+            if (!isFirebaseEnabled || !userId) return;
+            const docRef = doc(db, "artifacts", "quiz-app", "users", userId);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                highScores = docSnap.data().scores || {};
+            } else {
+                Object.keys(allQuestions).forEach(cat => highScores[cat] = 0);
+            }
+        }
+        
+        async function saveHighScore() {
+            if (!isFirebaseEnabled || !userId) return;
+            const docRef = doc(db, "artifacts", "quiz-app", "users", userId);
+            await setDoc(docRef, { scores: highScores }, { merge: true });
+        }
+
+        function displayHighScores() {
+            highScoresList.innerHTML = '';
+            Object.keys(allQuestions).forEach(category => {
+                const scoreValue = highScores[category] || 0;
+                const scoreDiv = document.createElement('div');
+                scoreDiv.innerHTML = `<span class="font-semibold">${category}:</span> <span class="font-bold text-indigo-500">${scoreValue}</span>`;
+                highScoresList.appendChild(scoreDiv);
+            });
+        }
+
+        // --- UI Setup ---
+        function setupCategoryButtons() {
+            categorySelection.innerHTML = '';
+            Object.keys(allQuestions).forEach(category => {
+                const button = document.createElement('button');
+                button.innerText = category;
+                button.classList.add('w-full', 'bg-indigo-600', 'hover:bg-indigo-700', 'text-white', 'font-bold', 'py-4', 'px-6', 'rounded-lg', 'text-lg', 'transition-all', 'transform', 'hover:scale-105');
+                button.addEventListener('click', () => startQuiz(category));
+                categorySelection.appendChild(button);
+            });
+        }
+
+        // --- Quiz Flow ---
+        function startQuiz(category) {
+            selectedCategory = category;
+            quizQuestions = allQuestions[category];
+            currentQuestionIndex = 0;
+            score = 0;
+            scoreEl.innerText = score;
+            startScreen.classList.add('hidden');
+            resultsScreen.classList.add('hidden');
+            quizScreen.classList.remove('hidden');
+            updateProgressBar();
+            setNextQuestion();
+        }
+
+        function setNextQuestion() {
+            resetState();
+            if (currentQuestionIndex < quizQuestions.length) {
+                showQuestion(quizQuestions[currentQuestionIndex]);
+                startTimer();
+            } else {
+                showResults();
+            }
+        }
+
+        function showQuestion(question) {
+            questionText.innerText = question.question;
+            question.answers.forEach(answer => {
+                const button = document.createElement('button');
+                button.innerText = answer.text;
+                button.classList.add('w-full', 'p-4', 'bg-gray-200', 'dark:bg-gray-700', 'rounded-lg', 'text-left', 'hover:bg-gray-300', 'dark:hover:bg-gray-600', 'transition-all', 'focus:outline-none', 'focus:ring-2', 'focus:ring-indigo-400', 'border-2', 'border-transparent');
+                if (answer.correct) {
+                    button.dataset.correct = answer.correct;
+                }
+                button.addEventListener('click', selectAnswer);
+                answerButtons.appendChild(button);
+            });
+        }
+
+        function resetState() {
+            clearTimeout(timer);
+            clearInterval(timerInterval);
+            newHighScoreText.classList.add('hidden');
+            while (answerButtons.firstChild) {
+                answerButtons.removeChild(answerButtons.firstChild);
+            }
+        }
+
+        function startTimer() {
+            let timeLeft = TIME_LIMIT;
+            timerEl.textContent = `${timeLeft}s`;
+            timerEl.classList.remove('bg-red-500', 'text-white');
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timerEl.textContent = `${timeLeft}s`;
+                if (timeLeft <= 5) timerEl.classList.add('bg-red-500', 'text-white');
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    currentQuestionIndex++;
+                    updateProgressBar();
+                    setNextQuestion();
+                }
+            }, 1000);
+        }
+
+        function selectAnswer(e) {
+            clearInterval(timerInterval);
+            const selectedButton = e.target;
+            const correct = selectedButton.dataset.correct === "true";
+            
+            setStatusClass(selectedButton, correct);
+            if (correct) {
+                score++;
+                scoreEl.innerText = score;
+            }
+
+            Array.from(answerButtons.children).forEach(button => {
+                if (button.dataset.correct === "true") setStatusClass(button, true);
+                button.disabled = true;
+            });
+
+            setTimeout(() => {
+                currentQuestionIndex++;
+                updateProgressBar();
+                setNextQuestion();
+            }, 1500);
+        }
+
+        function setStatusClass(element, correct) {
+            element.classList.remove('correct', 'incorrect');
+            element.classList.add(correct ? 'correct' : 'incorrect');
+        }
+
+        function updateProgressBar() {
+            const progressPercentage = (currentQuestionIndex / quizQuestions.length) * 100;
+            progressBar.style.width = `${progressPercentage}%`;
+        }
+
+        async function showResults() {
+            quizScreen.classList.add('hidden');
+            resultsScreen.classList.remove('hidden');
+            finalScoreEl.innerText = `${score} / ${quizQuestions.length}`;
+            
+            // Check for new high score only if Firebase is enabled
+            if (isFirebaseEnabled && score > (highScores[selectedCategory] || 0)) {
+                highScores[selectedCategory] = score;
+                newHighScoreText.innerText = `New High Score for ${selectedCategory}!`;
+                newHighScoreText.classList.remove('hidden');
+                await saveHighScore();
+            }
+
+            const percentage = (score / quizQuestions.length) * 100;
+            if (percentage === 100) feedbackTextEl.innerText = "Perfect score! You're a genius!";
+            else if (percentage >= 60) feedbackTextEl.innerText = "Great job! You really know your stuff.";
+            else feedbackTextEl.innerText = "Good effort! Keep learning and try again.";
+        }
+        
+        function returnToStart() {
+            resultsScreen.classList.add('hidden');
+            startScreen.classList.remove('hidden');
+            if(isFirebaseEnabled) {
+                displayHighScores(); // Refresh high scores on the start screen
+            }
+        }
+
+        // --- Event Listeners ---
+        restartBtn.addEventListener('click', returnToStart);
+        
+        // --- App Entry Point ---
+        initializeFirebase();
+
+    </script>
+</body>
+</html>
